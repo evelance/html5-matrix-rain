@@ -1,0 +1,174 @@
+<!doctype html> 
+<html>
+    <head>
+        <meta http-equiv="content-type" content="text/html; charset=utf-8"/>
+        <title>Matrix-Effekt</title>
+        <style type="text/css">
+            body {
+                background:black;
+                overflow:hidden;
+            }
+            canvas {
+                margin:0;
+                padding:0;
+                position:absolute;
+                top:0;
+                left:0;
+            }
+        </style>
+    </head>
+    <body>
+        <script type="text/javascript">
+            // Canvas that spans the whole viewport
+            var draw = document.createElement("canvas");
+            var w = draw.width  = window.innerWidth;
+            var h = draw.height = window.innerHeight;
+            document.body.appendChild(draw);
+            
+            // Alphabet to display
+            var chars = [
+                "゠","ァ","ア","ィ","イ","ゥ","ウ","ェ","エ","ォ","オ","カ","ガ","キ","ギ","ク","グ","ケ","ゲ","コ","ゴ","サ","ザ","シ",
+                "ジ","ス","ズ","セ","ゼ","ソ","ゾ","タ","ダ","チ","ヂ","ッ","ツ","ヅ","テ","デ","ト","ド","ナ","ニ","ヌ","ネ","ノ","ハ",
+                "バ","パ","ヒ","ビ","ピ","フ","ブ","プ","ヘ","ベ","ペ","ホ","ボ","ポ","マ","ミ","ム","メ","モ","ャ","ヤ","ュ","ユ","ョ",
+                "ヨ","ラ","リ","ル","レ","ロ","ヮ","ワ","ヰ","ヱ","ヲ","ン","ヴ","ヵ","ヶ","ヷ","ヸ","ヹ","ヺ","・","ー","ヽ","ヾ","ヿ",
+                "+","*","/",":","=","?","0","1","௧","௨","௩","௪","௫","௬","௭","௮","௯",
+            ];
+            
+            // Letter tile settings
+            tile_fontsize = 16;
+            tile_width    = 90;
+            tile_height   = 90;
+            tile_letter_x = 35;
+            tile_letter_y = 55;
+            
+            // Pre-render letter with shadow + blur to save computation time
+            function generate_tile(chr, letter_color, blur_letter, shadow_count, shadow_color) {
+                // Create canvas tile
+                var canv = document.createElement("canvas");
+                canv.width  = tile_width;
+                canv.height = tile_height;
+                var ctx = canv.getContext("2d");
+                // Draw character on it
+                ctx.filter = "blur(14px)";
+                ctx.font = "bold " + tile_fontsize + "px monospace";
+                ctx.fillStyle = shadow_color;
+                for (var i = 0; i < shadow_count; ++i)
+                    ctx.fillText(chr, tile_letter_x, tile_letter_y);
+                ctx.fillStyle = letter_color;
+                if (blur_letter > 0) {
+                    ctx.filter = "blur(" + blur_letter + "px)";
+                } else {
+                    ctx.filter = "none";
+                }
+                ctx.fillText(chr, tile_letter_x, tile_letter_y);
+                return canv;
+            }
+            
+            var tiles_light = []; // Bright leading letters
+            var tiles_dark = [];  // Darker after-images
+            
+            for (var i = 0; i < chars.length; ++i) {
+                tiles_light[i] = generate_tile(chars[i], "#aaffdd", 0.2, 4, "#88eeaa");
+                tiles_dark[i]  = generate_tile(chars[i], "#1aa743", 0.7, 3, "#165c27");
+            }
+            function rndtile() {
+                return rnd(0, tiles_light.length - 1);
+            }
+            
+            // Letter offsets
+            tile_fontsize -= 2;
+            var offx = -tile_letter_x;
+            var offy = tile_fontsize - tile_letter_y - 3;
+            var charsx = draw.width / tile_fontsize;
+            var charsy = draw.height / tile_fontsize;
+            function charposx(x) { return x * tile_fontsize + offx; }
+            function charposy(y) { return y * tile_fontsize + offy; }
+            
+            // Buffer tile for lower opacity
+            var bufcanv = document.createElement("canvas");
+            bufcanv.width  = tile_width;
+            bufcanv.height = tile_height;
+            var bufctx = bufcanv.getContext("2d");
+            
+            // Draw tiles on given canvas context
+            function drawtile(ctx, tile, x, y, opacity) {
+                if (opacity < 1.0) {
+                    bufctx.clearRect(0, 0, tile_width, tile_height);
+                    bufctx.globalAlpha = opacity;
+                    bufctx.drawImage(tile, 0, 0);
+                    ctx.drawImage(bufcanv, charposx(x), charposy(y));
+                } else {
+                    ctx.drawImage(tile, charposx(x), charposy(y));
+                }
+            }
+            
+            // Create initial letter lines
+            var lines = [];
+            for (var x = 0; x < charsx; ++x) {
+                lines[lines.length] = {x: x, y: rnd(-80, 0), old: [], maxlen: rnd(20, 60)};
+            }
+            
+            // Calculate frames
+            var ctx = draw.getContext("2d");
+            var flickerCounter = 0;
+            function frame() {
+                // Clear screen
+                ctx.clearRect(0, 0, draw.width, draw.height);
+                
+                // Draw letter lines
+                if (++flickerCounter > 2)
+                    flickerCounter = 0;
+                for (var l = lines.length; l > 0; --l) {
+                    var line = lines[l - 1];
+                    
+                    // Draw old letters
+                    for (var ot = line.old.length - 1, i = 0; ot >= 0; --ot, ++i) {
+                        if (line.old[ot].flicker && flickerCounter == 0) {
+                            line.old[ot].tile = rndtile();
+                        }
+                        var op = (ot > 5) ? 1.0 : 1.0 / (5 - ot);
+                        drawtile(ctx, tiles_dark[line.old[ot].tile], line.x, line.y - i - 1, op);
+                    }
+                    // Advance line
+                    if (line.y - line.maxlen < charsy) {
+                        // Grow line
+                        var headtile = rndtile();
+                        line.old[line.old.length] = {tile: headtile, flicker: (rnd(0, 10) == 0)};
+                        if (line.old.length > line.maxlen)
+                            line.old.splice(0, 1);
+                        drawtile(ctx, tiles_light[headtile], line.x, line.y, 1.0);
+                        ++line.y;
+                    } else {
+                        // Reset line and recreate it at another position
+                        for (var tries = 0; tries < 10; ++tries) {
+                            // Try to find a x position that is not yet assigned
+                            line.x = rnd(0, charsx);
+                            var collision = false;
+                            for (var otherl = 0; otherl < lines.length; ++otherl) {
+                                if (otherl != l && lines[otherl].x == line.x && (lines[otherl].y - lines[otherl].maxlen) < 0) {
+                                    collision = true;
+                                }
+                            }
+                            if (! collision) {
+                                break;
+                            }
+                        }
+                        line.y = (rnd(0, 5) == 0) ? rnd(0, charsy) :  -1;
+                        line.old = [];
+                        line.maxlen = rnd(5, 50);
+                    }
+                }
+                
+                // Wait for next frame
+                requestAnimationFrame(frame);
+            }
+            
+            function rnd(min, max) {
+                return Math.floor(min + Math.random() * (max - min + 1));
+            }
+            
+            requestAnimationFrame(frame);
+        </script>
+    </body>
+</html>
+
